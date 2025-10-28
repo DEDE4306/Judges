@@ -1,60 +1,104 @@
-from crewai import Agent, Crew, Task, LLM, Process
-from crewai.project import CrewBase, agent, task, crew
+import os
+
 import yaml
 
+from pathlib import Path
+from crewai import Agent, LLM, Task, Process, Crew
+from dotenv import load_dotenv
 
+load_dotenv()
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
-@CrewBase
-class JudgeCrew:
-    "洞穴奇案法官"
+deepseek_llm = LLM(
+    model="openai/deepseek-ai/DeepSeek-R1",
+    base_url="https://api.siliconflow.cn/v1",
+    api_key=openai_api_key,
+    temperature=0.7,
+    max_tokens=8192
+)
 
-    agents_config = "config/agents.yaml"
-    tasks_config = "config/tasks.yaml"
+current_dir = Path(__file__).parent
 
-    def _get_config(self, section, name):
-        with open(self.agents_config if section == "agents" else self.tasks_config, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)[section]
-        for item in cfg:
-            if item["name"] == name:
-                return item
-        raise ValueError(f"{name} not found in YAML")
+def _load_yaml(filepath):
+    with open(filepath, encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
-    @agent
-    def judges(self):
+class JudgesCrew:
+    """洞穴奇案法官 Crew"""
+
+    def __init__(self):
+        config_dir = current_dir / "config"
+        self.agents_config = config_dir / "agents.yaml"
+        self.tasks_config = config_dir / "tasks.yaml"
+        case_path = config_dir / "case_summary.txt"
+        if not case_path.exists():
+            raise FileNotFoundError(f"文件不存在: {case_path}")
+
+        self.case_text = case_path.read_text(encoding="utf-8")
+
+    def create_crew(self):
+        agents_yaml = _load_yaml(self.agents_config)
+        tasks_yaml = _load_yaml(self.tasks_config)
+
+        # 创建所有法官 Agent
         agents = []
-        agent = Agent(
-            config = self._get_config("Tatting J."),
-            llm = self.llm,
+        for a in agents_yaml["agents"]:
+            agent = Agent(
+                role=a["role"],
+                goal=a["goal"],
+                backstory=a["backstory"],
+                llm=deepseek_llm,
+                verbose=True,
+                allow_delegation=False
+            )
+            agents.append(agent)
+
+        # 创建讨论任务
+        tasks = []
+        task_config = tasks_yaml["tasks"][0]
+
+        judge_tasks = []
+
+        for i, agent in enumerate(agents[:-1]):
+            # 排除最后的 Clerk
+
+            agent_name = agents_yaml["agents"][i]["name"]
+            agent_role = agent.name
+            full_description = f"""
+                ## 案情材料
+
+                {self.case_text}
+
+                ## 任务要求
+
+                {task_config['description']}
+
+                请以 {agent_role}: {agent_name} 的身份发表法律意见。
+            """
+
+            task = Task(
+                description=full_description,
+                expected_output=task_config["expected_output"],
+                agent=agent
+            )
+            judge_tasks.append(task)
+            tasks.append(task)
+
+        # 书记官总结任务（依赖所有法官的讨论）
+        clerk_agent = agents[-1]
+        agent_config = tasks_yaml["tasks"][1]
+        summary_task = Task(
+            description=agent_config['description'],
+            expected_output=agent_config['expected_output'],
+            agent=clerk_agent,
+            context=judge_tasks
+        )
+        tasks.append(summary_task)
+
+        # 创建 Crew
+        return Crew(
+            agents=agents,
+            tasks=tasks,
+            process=Process.sequential,
             verbose=True
         )
-        agents.append(agent)
-        return agents
-
-    @task
-    def discuss_case(self):
-        task_cfg = self._get_config("tasks", "法官发表意见")
-        return [
-            Task(
-                config=task_cfg,
-                agent=a,
-            ) for a in self.judges() if a.name != "Clerk"]
-
-    @task
-    def summerize_discussion(self):
-        clerk_agent = next(a for a in self.judges() if a.name == "Clerk")
-        task_cfg = self._get_config("tasks","书记官总结讨论")
-        return Task(
-            config=task_cfg,
-            agent=clerk_agent
-        )
-
-    @crew
-    def crew(self):
-        """创建一个 Crew"""
-        return Crew(
-            agents = self.judges(),
-            tasks = [self.discuss_case(), self.summerize_discussion()],
-            process = Process.sequential,
-            verbose = True
-        )
-
