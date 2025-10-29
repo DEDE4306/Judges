@@ -15,6 +15,21 @@ tasks:
       - "Keen J."
       - "Handy J."
 
+  - name: "法官互相辩论"
+    description: >
+      请参考之前所有法官的意见，针对其他法官的观点进行辩论。
+      你可以提出质疑、支持或进一步解释你的立场。
+    expected_output: >
+      请以第一人称撰写完整辩论文本，包括：
+      - 法官姓名
+      - 针对其他法官观点的回应与辩论理由（100-200字）
+    agents:
+      - "Truepenny C.J."
+      - "Foster J."
+      - "Tatting J."
+      - "Keen J."
+      - "Handy J."
+
   - name: "书记官总结讨论"
     description: >
       请汇总所有法官的意见，制作一份会议纪要与表决结果。

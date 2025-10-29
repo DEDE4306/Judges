@@ -17,6 +17,7 @@ deepseek_llm = LLM(
     max_tokens=8192
 )
 
+
 current_dir = Path(__file__).parent
 
 def _load_yaml(filepath):
@@ -55,8 +56,9 @@ class JudgesCrew:
 
         # 创建讨论任务
         tasks = []
-        task_config = tasks_yaml["tasks"][0]
+        task_1_config = tasks_yaml["tasks"][0]
 
+        # 法官陈述观点
         judge_tasks = []
 
         for i, agent in enumerate(agents[:-1]):
@@ -71,29 +73,65 @@ class JudgesCrew:
 
                 ## 任务要求
 
-                {task_config['description']}
+                {task_1_config['description']}
 
-                请以 {agent_role}: {agent_name} 的身份发表法律意见。
+                请以 {agent_role}: {agent_name} 的身份发表法律意见，用中文。
             """
 
             task = Task(
                 description=full_description,
-                expected_output=task_config["expected_output"],
+                expected_output=task_1_config["expected_output"],
                 agent=agent
             )
             judge_tasks.append(task)
             tasks.append(task)
 
+
         # 书记官总结任务（依赖所有法官的讨论）
         clerk_agent = agents[-1]
-        agent_config = tasks_yaml["tasks"][1]
-        summary_task = Task(
+        agent_config = tasks_yaml["tasks"][2]
+        clerk_task_1  = Task(
             description=agent_config['description'],
             expected_output=agent_config['expected_output'],
             agent=clerk_agent,
             context=judge_tasks
         )
-        tasks.append(summary_task)
+        tasks.append(clerk_task_1)
+
+        # 第二轮法官互相辩论
+        debate_tasks = []
+
+        task_2_config = tasks_yaml["tasks"][1]
+
+        for i, agent in enumerate(agents[:-1]):
+            # 排除最后的 Clerk
+
+            agent_name = agents_yaml["agents"][i]["name"]
+            agent_role = agent.role
+            full_description = f"""
+                ## 任务要求
+                
+                {task_2_config['description']}
+
+                请以 {agent_role}: {agent_name} 的身份发表法律意见，用中文。
+            """
+
+            task = Task(
+                description=full_description,
+                expected_output=task_2_config["expected_output"],
+                agent=agent,
+                context=judge_tasks
+            )
+            debate_tasks.append(task)
+            tasks.append(task)
+
+        clerk_task_2 = Task(
+            description=agent_config['description'],
+            expected_output=agent_config['expected_output'],
+            agent=clerk_agent,
+            context=debate_tasks
+        )
+        tasks.append(clerk_task_2)
 
         # 创建 Crew
         return Crew(
