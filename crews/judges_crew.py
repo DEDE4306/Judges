@@ -7,7 +7,7 @@ from crewai import Agent, LLM, Task, Process, Crew
 from dotenv import load_dotenv
 
 load_dotenv()
-openai_api_key = os.getenv("OPENAI_API_KEY")
+openai_api_key = os.getenv("DEEPSEEK_API_KEY")
 
 deepseek_llm = LLM(
     model="openai/deepseek-ai/DeepSeek-R1",
@@ -100,5 +100,4 @@ class JudgesCrew:
             agents=agents,
             tasks=tasks,
             process=Process.sequential,
-            verbose=True,
         )
