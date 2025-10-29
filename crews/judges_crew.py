@@ -63,7 +63,7 @@ class JudgesCrew:
             # 排除最后的 Clerk
 
             agent_name = agents_yaml["agents"][i]["name"]
-            agent_role = agent.name
+            agent_role = agent.role
             full_description = f"""
                 ## 案情材料
 
@@ -100,5 +100,5 @@ class JudgesCrew:
             agents=agents,
             tasks=tasks,
             process=Process.sequential,
-            verbose=True
+            verbose=True,
         )
