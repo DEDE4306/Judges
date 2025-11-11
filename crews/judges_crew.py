@@ -17,7 +17,6 @@ deepseek_llm = LLM(
     max_tokens=8192
 )
 
-
 current_dir = Path(__file__).parent
 
 def _load_yaml(filepath):
@@ -56,14 +55,16 @@ class JudgesCrew:
 
         # 创建讨论任务
         tasks = []
-        task_1_config = tasks_yaml["tasks"][0]
 
-        # 法官陈述观点
+        task_1_config = tasks_yaml["tasks"][0]
+        task_2_config = tasks_yaml["tasks"][1]
+        clerk_config = tasks_yaml["tasks"][2]
+
+        # =============== 法官陈述观点 ===================
         judge_tasks = []
 
         for i, agent in enumerate(agents[:-1]):
             # 排除最后的 Clerk
-
             agent_name = agents_yaml["agents"][i]["name"]
             agent_role = agent.role
             full_description = f"""
@@ -87,47 +88,52 @@ class JudgesCrew:
             tasks.append(task)
 
 
-        # 书记官总结任务（依赖所有法官的讨论）
+        # ================ 书记官总结任务 ===================
         clerk_agent = agents[-1]
-        agent_config = tasks_yaml["tasks"][2]
+
         clerk_task_1  = Task(
-            description=agent_config['description'],
-            expected_output=agent_config['expected_output'],
+            description=clerk_config['description'],
+            expected_output=clerk_config['expected_output'],
             agent=clerk_agent,
-            context=judge_tasks
+            context=judge_tasks  # 依赖法官第一轮观点陈述
         )
         tasks.append(clerk_task_1)
 
-        # 第二轮法官互相辩论
+        # ================= 第二轮法官互相辩论 ==================
         debate_tasks = []
-
-        task_2_config = tasks_yaml["tasks"][1]
 
         for i, agent in enumerate(agents[:-1]):
             # 排除最后的 Clerk
-
             agent_name = agents_yaml["agents"][i]["name"]
             agent_role = agent.role
+            if i == 0:
+                # 第一个法官：看所有初始陈述 + 书记官总结
+                current_context = [clerk_task_1]
+            else:
+                # 其他法官：看书记官总结 + 上一个法官的辩论
+                current_context = [clerk_task_1, debate_tasks[-1]]
             full_description = f"""
                 ## 任务要求
                 
                 {task_2_config['description']}
 
                 请以 {agent_role}: {agent_name} 的身份发表法律意见，用中文。
+                
             """
 
             task = Task(
                 description=full_description,
                 expected_output=task_2_config["expected_output"],
                 agent=agent,
-                context=judge_tasks
+                context=current_context
             )
             debate_tasks.append(task)
             tasks.append(task)
 
+        # ================= 书记官总结 ================
         clerk_task_2 = Task(
-            description=agent_config['description'],
-            expected_output=agent_config['expected_output'],
+            description=clerk_config['description'],
+            expected_output=clerk_config['expected_output'],
             agent=clerk_agent,
             context=debate_tasks
         )
@@ -138,4 +144,5 @@ class JudgesCrew:
             agents=agents,
             tasks=tasks,
             process=Process.sequential,
+            verbose=False
         )
