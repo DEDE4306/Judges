@@ -21,10 +21,24 @@ class CaveCaseFlow(Flow[CaseState]):
     @start()
     def begin_discussion(self):
 
-        crew = JudgesCrew().create_crew()
-        result = crew.kickoff()
+        judges_crew = JudgesCrew().create_crew()
+        
+        # Phase 1: Sequential - judges express initial opinions
+        print("\n" + "="*80)
+        print("【第一阶段】法官陈述初步观点（按顺序）")
+        print("="*80 + "\n")
+        phase_1_result = judges_crew["phase_1"].kickoff()
+        
+        # Phase 2: Hierarchical - manager orchestrates debate
+        print("\n" + "="*80)
+        print("【第二阶段】经理组织法官辩论")
+        print("="*80 + "\n")
+        phase_2_result = judges_crew["phase_2"].kickoff()
 
-        return result
+        return {
+            "phase_1_result": phase_1_result,
+            "phase_2_result": phase_2_result
+        }
 
 if __name__ == "__main__":
     flow = CaveCaseFlow()
