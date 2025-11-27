@@ -8,24 +8,68 @@ from crewai import LLM, Agent, Task, Crew, Process
 
 from dotenv import load_dotenv
 
-import logging
-logging.basicConfig(level=logging.DEBUG)
-
-
 # 加载环境变量
 load_dotenv()
 deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
 bailian_api_key = os.getenv("BAILIAN_API_KEY")
+huggingface_api_key = os.getenv("HUGGINGFACE_API_KEY")
+
+
+os.environ["EMBEDDINGS_HUGGINGFACE_URL"] = "https://router.huggingface.co"
+
+os.environ["HUGGINGFACE_API_KEY"] = huggingface_api_key
 
 # 创建 deepseek_llm，用于法官和书记官
 deepseek_llm = LLM(
-    model="openai/deepseek-ai/DeepSeek-V3",
+    model="openai/Pro/deepseek-ai/DeepSeek-V3",  # Pro
     base_url="https://api.siliconflow.cn/v1",
     api_key=deepseek_api_key,
     temperature=0.7,
     max_tokens=1024,
     max_retries=5,
     timeout=120,
+)
+
+deepseek_llm_lite = LLM(
+    model="openai/deepseek-ai/DeepSeek-V2.5",  # Pro
+    base_url="https://api.siliconflow.cn/v1",
+    api_key=deepseek_api_key,
+    temperature=0.7,
+    max_tokens=1024,
+    max_retries=5,
+    timeout=120,
+)
+
+bailian_llm_lite = LLM(
+    model="qwen3-4b",
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    api_key=bailian_api_key,
+    temperature=0.3,
+    top_p=0.9,
+    frequency_penalty=0.2,
+    presence_penalty=0.2,
+    max_tokens=2048,
+    max_retries=5,
+    timeout=120,
+    extra_body={
+        "enable_thinking": False
+    }
+)
+
+bailian_llm_li = LLM(
+    model="qwen3-8b",
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    api_key=bailian_api_key,
+    temperature=0.3,
+    top_p=0.9,
+    frequency_penalty=0.2,
+    presence_penalty=0.2,
+    max_tokens=2048,
+    max_retries=5,
+    timeout=120,
+    extra_body={
+        "enable_thinking": False
+    }
 )
 
 # 创建 bailian_llm，用于辩论主持人
@@ -41,6 +85,8 @@ bailian_llm = LLM(
     max_retries=5,
     timeout=120,
 )
+
+llms = [deepseek_llm, deepseek_llm_lite, bailian_llm, bailian_llm_lite, bailian_llm_li]
 
 # 当前目录，用于加载 yaml
 current_dir = Path(__file__).parent
@@ -95,17 +141,35 @@ class JudgesCrew:
         5. **语言要求**：
            - 称呼自己和其他法官时使用英文名（如"我认同 Foster 法官的观点""我是法官 Keen.J"）
            - 所有发言内容使用中文
+           
+        ## 强制互动规则（非常重要）
+        如果任务要求是辩论，你必须：
+            - 指出你认同的部分并解释原因
+            - 指出你反对的部分并给出新的论证
+            - 补充、反驳或质疑上一位法官的逻辑细节
+            - 如果上一位法官点名你或你的立场，你必须作出回应
+            
+            禁止机械重复你原本的人物立场，除非你加入新的推理、例子、类比或进一步解释，否则不得重复上一轮说过的话。
+            
+            你可以在保持核心立场不变的情况下进行推理方式的调整，例如：
+            - 承认对方提出的特殊情况
+            - 修正你对法律适用范围的解释
+            - 展示自己内心的矛盾（若角色设定允许）
+            - 增加新的角度、原则或法理支持你的立场
+        
+        《联邦法典》第十二条A款，规定“任何故意剥夺他人生命的人都必须被判处死刑”
         """
 
         # 创建法官
-        def build_judge(name: str):
+        def build_judge(name: str, i: int):
             """根据法官名字创建法官"""
             cfg = self.agents_yaml[name]
             full_backstory = f"{cfg['backstory']}\n\n{judge_style_prompt}"
+
             judge = Agent(
                 config=cfg,
                 backstory=full_backstory,
-                llm=deepseek_llm,
+                llm=llms[i],
                 verbose=True,
                 allow_delegation=False,
                 max_rpm=5,
@@ -118,8 +182,10 @@ class JudgesCrew:
         # 存储法官列表
         self.judges=[]
         # 创建法官列表
+        i = 0
         for judge_name in self.judges_info:
-            agent = build_judge(judge_name)
+            agent = build_judge(judge_name, i)
+            i = (i + 1) % len(llms)
             self.judges.append(agent)
 
         # 创建书记官
@@ -180,7 +246,7 @@ class JudgesCrew:
         )
 
         # ==================== 第三阶段：主持人组织辩论 ====================
-        judge_roles_list = " ".join([f"- {agent.role.lower()}" for agent in self.judges])
+        judge_roles_list = " ".join([f"- {agent.role}" for agent in self.judges])
 
         debate_task_config = self.tasks_yaml["organize_debate"]
         debate_desc = debate_task_config["description"].format(
@@ -229,9 +295,8 @@ class JudgesCrew:
             process=Process.hierarchical,
             manager_agent=self.manager,
             verbose=True,
-            memory=False,
+            memory=False
         )
-
         # 第四轮：书记官总结
         summary_crew = Crew(
             agents=[self.clerk],
